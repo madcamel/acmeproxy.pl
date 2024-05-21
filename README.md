@@ -17,8 +17,8 @@ acmeproxy.pl was written to make it easier and safer to automatically issue per-
 There are three main ways to handle internal TLS certificates:
 - Run a certificate authority. This is good for enterprises but probably overkill for smaller setups.
 
-- Use something like certbot to generate certificates on a central host, then distribute the certificates to every host on the network. This can be error prone and difficult to orchistrate.
-- Allow individual hosts to manage their own certificates by providing access to the DNS API for acme challenges. This is convienent but a massive security risk as every host will have unfettered access to the DNS API.
+- Use something like certbot to generate certificates on a central host, then distribute the certificates to every host on the network. This can be error prone and difficult to orchestrate.
+- Allow individual hosts to manage their own certificates by providing access to the DNS API for acme challenges. This is convenient but a massive security risk as every host will have unfettered access to the DNS API.
 
 
 As a solution acmeproxy.pl provides the following:
