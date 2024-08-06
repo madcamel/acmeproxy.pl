@@ -47,6 +47,34 @@ Edit the configuration then run ./acmeproxy.pl again. If it is able to generate 
  - OR ```hypnotoad acmeproxy.pl```
  - OR run it in tmux like some sort of heathen
 
+## Docker
+
+To use the tool with docker you have 2 options: docker CLI or docker compose.
+
+For docker compose you can use the following file as a reference:
+```yaml
+# $schema: "https://raw.githubusercontent.com/compose-spec/compose-spec/master/schema/compose-spec.json"
+name: "acmeproxy"
+
+services:
+  acmeproxy:
+    image: ghcr.io/madcamel/acmeproxy.pl
+    restart: unless-stopped
+    port: # Or use expose when using a reverse proxy
+      - 9443/tcp
+    volumes:
+      - ./config:/config:rw
+```
+
+Use the Docker CLI you can achive something similar using:
+```console
+docker run \
+  -p 9443/tcp \
+  -v /path/to/config:/config:rw \
+  --restart unless-stopped \
+  ghcr.io/madcamel/acmeproxy.pl
+```
+
 ### Using acme.sh with acmeproxy
 Sample acme.sh usage:
 ```bash

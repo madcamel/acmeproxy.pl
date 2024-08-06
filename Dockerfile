@@ -3,6 +3,7 @@ FROM ubuntu
 WORKDIR /config
 VOLUME /config
 ENV HOME="/config"
+EXPOSE 9443
 
 RUN apt-get update \
     && DEBIAN_FRONTEND=noninteractive apt-get install -y libmojolicious-perl curl \
