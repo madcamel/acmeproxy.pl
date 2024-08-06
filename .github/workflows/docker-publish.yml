@@ -27,16 +27,9 @@ jobs:
       matrix:
         platform:
           - docker: linux/amd64
-            go: amd64
-          - docker: linux/arm/v6
-            go: arm
-            qemu: arm
-            dockerfile: alpine.Dockerfile
           - docker: linux/arm/v7
-            go: arm
             qemu: arm
-          - docker: linux/arm64
-            go: arm64
+          - docker: linux/arm64/v8
             qemu: arm64
     runs-on: ubuntu-latest
     permissions:
