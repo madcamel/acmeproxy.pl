@@ -17,7 +17,7 @@ RUN curl -sSL https://github.com/just-containers/s6-overlay/releases/download/v$
     && tar -C / -Jxpf /tmp/s6-overlay-${S6_OVERLAY_ARCH}.tar.xz \
     && rm /tmp/s6-overlay-noarch.tar.xz /tmp/s6-overlay-${S6_OVERLAY_ARCH}.tar.xz
 
-COPY ./services.d /etc/services.d
+COPY ./docker/services.d /etc/services.d
 
 ENTRYPOINT ["/init"]
 
