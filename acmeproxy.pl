@@ -33,12 +33,13 @@ my $acme_home = "$ENV{'HOME'}/.acme.sh";
 use Mojolicious::Lite -signatures;
 use Mojo::Util qw(secure_compare);
 use POSIX qw(strftime);
+use Cwd;
 use strict;
 
 die("$0: please install curl.\n") unless (-x `/usr/bin/which curl` =~ s/[\r\n]//r);
 
 write_config() unless (-f 'acmeproxy.pl.conf');
-my $config = plugin 'Config' => {file => 'acmeproxy.pl.conf', format => 'perl'};
+my $config = plugin 'Config' => {file => cwd().'/acmeproxy.pl.conf', format => 'perl'};
 
 # Set environment variables from config
 foreach (keys %{$config->{env}}) { $ENV{$_} = $config->{env}->{$_}; }
