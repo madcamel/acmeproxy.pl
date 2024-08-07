@@ -13,7 +13,7 @@ RUN apt-get update \
 
 RUN curl -sSL https://github.com/just-containers/s6-overlay/releases/download/v${S6_OVERLAY_VERSION}/s6-overlay-noarch.tar.xz -o /tmp/s6-overlay-noarch.tar.xz \
     && tar -C / -Jxpf /tmp/s6-overlay-noarch.tar.xz \
-    && curl -sSL https://github.com/just-containers/s6-overlay/releases/download/v${S6_OVERLAY_VERSION}/s6-overlay-${S6_OVERLAY_ARCH}.tar.xz /tmp/s6-overlay-${S6_OVERLAY_ARCH}.tar.xz \
+    && curl -sSL https://github.com/just-containers/s6-overlay/releases/download/v${S6_OVERLAY_VERSION}/s6-overlay-${S6_OVERLAY_ARCH}.tar.xz -o /tmp/s6-overlay-${S6_OVERLAY_ARCH}.tar.xz \
     && tar -C / -Jxpf /tmp/s6-overlay-${S6_OVERLAY_ARCH}.tar.xz \
     && rm /tmp/s6-overlay-noarch.tar.xz /tmp/s6-overlay-${S6_OVERLAY_ARCH}.tar.xz
 
