@@ -27,10 +27,13 @@ jobs:
       matrix:
         platform:
           - docker: linux/amd64
+            s6arch: x86_64
           - docker: linux/arm/v7
             qemu: arm
+            s6arch: arm
           - docker: linux/arm64/v8
             qemu: arm64
+            s6arch: aarch64
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -81,7 +84,7 @@ jobs:
         with:
           context: .
           file: ${{ matrix.platform.dockerfile && matrix.platform.dockerfile || 'Dockerfile' }}
-          build-args: GOARCH=${{ matrix.platform.go }}
+          build-args: S6_OVERLAY_ARCH=${{ matrix.platform.s6arch }}
           platforms: ${{ matrix.platform.docker }}
           push: false
           labels: ${{ steps.meta.outputs.labels }}
@@ -98,7 +101,7 @@ jobs:
         with:
           context: .
           file: ${{ matrix.platform.dockerfile && matrix.platform.dockerfile || 'Dockerfile' }}
-          build-args: GOARCH=${{ matrix.platform.go }}
+          build-args: S6_OVERLAY_ARCH=${{ matrix.platform.s6arch }}
           platforms: ${{ matrix.platform.docker }}
           push: true
           labels: ${{ steps.meta.outputs.labels }}
