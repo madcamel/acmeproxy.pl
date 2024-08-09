@@ -112,6 +112,7 @@ sub acme_cmd ($action, $fqdn, $value) {
   # Let's not pass weird characters to a shell
   return "invalid characters in fqdn" unless ($fqdn =~ /^[\w_\.-]+$/);
   return "invalid characters in value" unless ($value =~ /^[\w_\.-]+$/);
+  $fqdn =~ s/\.+$//; # Some acme.sh plugins add an additional . to the end of the hostname
 
   my $shellcmd = '/usr/bin/env bash -c "' .
     "source $acme_home/acme.sh >/dev/null 2>&1; " .     		                  # Load all bash functions from acme.sh
