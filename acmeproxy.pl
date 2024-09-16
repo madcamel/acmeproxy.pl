@@ -166,7 +166,7 @@ sub acme_gencert ($hn) {
   die("Could not create TLS certificate for $hn") if ($ret != 0 && $ret >> 8 != 2);
 
   my $extra_params_install_cert = join(' ', @{$config->{acmesh_extra_params_install_cert}});
-	my $ret = system("$acme_home/acme.sh --log --install-cert $extra_params_install_cert $domain_list " .
+	$ret = system("$acme_home/acme.sh --log --install-cert $extra_params_install_cert $domain_list " .
                    "--key-file $acme_home/acmeproxy.pl.key --fullchain-file $acme_home/acmeproxy.pl.crt");
   die("Could not install TLS certificate for $hn") if ($ret);
 }
