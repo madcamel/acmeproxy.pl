@@ -160,7 +160,7 @@ sub acme_gencert ($hn) {
   my $extra_params = join(' ', @{$config->{acmesh_extra_params}});
   my $domain_list = join(' ', map { qq/-d ${_}/} split(/\s+/, $hn));
   my $ret = system("$acme_home/acme.sh --force --log --issue $extra_params --dns $config->{dns_provider} $domain_list && ".
-	     "$acme_home/acme.sh --log --install-cert -d $hn --key-file $acme_home/acmeproxy.pl.key ".
+	     "$acme_home/acme.sh --log --install-cert $domain_list --key-file $acme_home/acmeproxy.pl.key ".
 		    "--fullchain-file $acme_home/acmeproxy.pl.crt");
   die("Could not create TLS certificate for $hn") if ($ret);
 }
