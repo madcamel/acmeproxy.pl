@@ -45,9 +45,7 @@ sub logg ($in) { say strftime("[%a %b %e %I:%M:%S %p %Z %Y] ", localtime()) . $i
 write_config() unless (-f 'acmeproxy.pl.conf');
 my $config = plugin 'Config' => {file => cwd().'/acmeproxy.pl.conf', format => 'perl'};
 
-# Early sanity checks
-die("acme dnslib provider not found: $config->{dns_provider}\n")
-  unless (-f "$acme_home/dnsapi/$config->{dns_provider}.sh");
+# Backwards compatibility checks/updates
 if (!exists($config->{acmesh_extra_params_install})) {
   $config->{acmesh_extra_params_install} = [];
 }
@@ -69,6 +67,10 @@ foreach (keys %{$config->{env}}) { $ENV{$_} = $config->{env}->{$_}; }
 
 # Install acme.sh if it isn't installed already
 acme_install() unless (-f "$acme_home/acme.sh");
+
+# Early sanity checks
+die("acme dnslib provider not found: $config->{dns_provider}\n")
+  unless (-f "$acme_home/dnsapi/$config->{dns_provider}.sh");
 
 # Generate a TLS certificate for ourselves if one doesn't exist
 acme_gencert($config->{hostname})
