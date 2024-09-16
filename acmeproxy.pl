@@ -34,25 +34,32 @@ use Mojolicious::Lite -signatures;
 use Mojo::Util qw(secure_compare);
 use POSIX qw(strftime);
 use Cwd;
+use Crypt::Bcrypt qw(bcrypt_check);
 use strict;
 
 die("$0: please install curl.\n") unless (-x `/usr/bin/which curl` =~ s/[\r\n]//r);
 
+# acme.sh uses this log format so we're sort of stuck with it
+sub logg ($in) { say strftime("[%a %b %e %I:%M:%S %p %Z %Y] ", localtime()) . $in };
+
 write_config() unless (-f 'acmeproxy.pl.conf');
 my $config = plugin 'Config' => {file => cwd().'/acmeproxy.pl.conf', format => 'perl'};
+
+# Early sanity checks
+die("acme dnslib provider not found: $config->{dns_provider}\n")
+  unless (-f "$acme_home/dnsapi/$config->{dns_provider}.sh");
+foreach my $auth (@{$config->{auth}}) {
+  if (exists($auth->{pass})) {
+    logg "One or more users are defined with plaintext passwords. You should convert them to bcrypt hashes!";
+    last;
+  }
+}
 
 # Set environment variables from config
 foreach (keys %{$config->{env}}) { $ENV{$_} = $config->{env}->{$_}; }
 
-# acme.sh uses this log format so we're sort of stuck with it
-sub logg ($in) { say strftime("[%a %b %e %I:%M:%S %p %Z %Y] ", localtime()) . $in };
-
 # Install acme.sh if it isn't installed already
 acme_install() unless (-f "$acme_home/acme.sh");
-
-# Early sanity check
-die("acme dnslib provider not found: $config->{dns_provider}\n")
-  unless (-f "$acme_home/dnsapi/$config->{dns_provider}.sh");
 
 # Generate a TLS certificate for ourselves if one doesn't exist
 acme_gencert($config->{hostname})
@@ -133,12 +140,20 @@ sub check_auth ($userpass, $fqdn) {
   }
 
   # $userpass is in the rather odd format of "username:password". Don't look at me, it's Mojolicious.
-  my $user = (split(/:/, $userpass, 2))[0];
+  my ($user, $pass) = split(/:/, $userpass, 2);
 
   foreach my $auth (@{$config->{auth}}) {
-    if (secure_compare($userpass, "$auth->{user}:$auth->{pass}") && $fqdn =~ /\.$auth->{host}\.?$/) {
-      logg "auth: $user successfully authenticated for $fqdn";
-      return 1;
+    my $auth_check = 0;
+    if (secure_compare($user, $auth->{user}) && $fqdn =~ /\.$auth->{host}\.?$/) {
+      if (exists($auth->{hash})) {
+        $auth_check = bcrypt_check($pass, $auth->{hash});
+      } else {
+        $auth_check = secure_compare($pass, $auth->{pass});
+      }
+      if ($auth_check) {
+        logg "auth: $user successfully authenticated for $fqdn";
+        return 1;
+      }
     }
   }
  
@@ -232,14 +247,16 @@ __DATA__
         # like slackbox.bob.int.example.com
         {
             'user' => 'bob',
-            'pass' => 'dobbs',
+            # Plain text password is: dobbs
+            'hash' => '$2b$12$ZkfzP1DVcFHSXyrtMRXJR.Ny2fpSixG00oLI2iMkT3yArpzs/921u',
             'host' => 'bob.int.example.com',
         },
         # Bob is hosting two TLS services on his machine with different TLS hostnames
         # Allow his credentials to generate certificates for the additional hostname as well
         {
-            'pass' => 'dobbs',
             'user' => 'bob',
+            # Plain text password is: dobbs
+            'hash' => '$2b$12$ZkfzP1DVcFHSXyrtMRXJR.Ny2fpSixG00oLI2iMkT3yArpzs/921u',
             'host' => 'subgenius.int.example.com',
         },
     ],

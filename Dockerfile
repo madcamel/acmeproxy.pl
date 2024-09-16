@@ -8,7 +8,7 @@ ENV HOME="/config"
 EXPOSE 9443
 
 RUN apt-get update \
-    && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends cron libio-socket-ssl-perl libmojolicious-perl curl ca-certificates xz-utils \
+    && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends cron libcrypt-bcrypt-perl libio-socket-ssl-perl libmojolicious-perl curl ca-certificates xz-utils \
     && rm -rf /var/cache/apt/archives /var/lib/apt/lists/*
 
 RUN curl -sSL https://github.com/just-containers/s6-overlay/releases/download/v${S6_OVERLAY_VERSION}/s6-overlay-noarch.tar.xz -o /tmp/s6-overlay-noarch.tar.xz \
