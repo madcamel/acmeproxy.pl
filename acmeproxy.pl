@@ -48,6 +48,15 @@ my $config = plugin 'Config' => {file => cwd().'/acmeproxy.pl.conf', format => '
 # Early sanity checks
 die("acme dnslib provider not found: $config->{dns_provider}\n")
   unless (-f "$acme_home/dnsapi/$config->{dns_provider}.sh");
+if (!exists($config->{acmesh_extra_params_install})) {
+  $config->{acmesh_extra_params_install} = [];
+}
+if (!exists($config->{acmesh_extra_params_install_cert})) {
+  $config->{acmesh_extra_params_install_cert} = [];
+}
+if (!exists($config->{acmesh_extra_params_issue})) {
+  $config->{acmesh_extra_params_issue} = [];
+}
 foreach my $auth (@{$config->{auth}}) {
   if (exists($auth->{pass})) {
     logg "One or more users are defined with plaintext passwords. You should convert them to bcrypt hashes!";
