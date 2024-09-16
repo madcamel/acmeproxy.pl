@@ -157,7 +157,9 @@ sub acme_install {
 sub acme_gencert ($hn) {
   logg "Generating and installing TLS certificate for $hn";
 
-  my $ret = system("$acme_home/acme.sh --force --log --issue --dns $config->{dns_provider} -d $hn && ".
+  my $extra_params = join(' ', @{$config->{acmesh_extra_params}});
+  my $domain_list = join(' ', map { qq/-d ${_}/} split(/\s+/, $hn));
+  my $ret = system("$acme_home/acme.sh --force --log --issue $extra_params --dns $config->{dns_provider} $domain_list && ".
 	     "$acme_home/acme.sh --log --install-cert -d $hn --key-file $acme_home/acmeproxy.pl.key ".
 		    "--fullchain-file $acme_home/acmeproxy.pl.crt");
   die("Could not create TLS certificate for $hn") if ($ret);
@@ -178,13 +180,18 @@ __DATA__
     # This configuration file is in perl format.
     # It is unfortunate that perl JSON does not support comments
 
+    # Extra params to be passed to acme.sh
+    acmesh_extra_params => [
+        '--server zerossl',
+    ],
+
     # Email address for acme.sh certificate issuance and expiration notification
     # Required for Let's Encrypt and ZeroSSL
     email => 'example@example.com',
 
     # Which acme.sh DNS provider do we use?
     # See https://github.com/acmesh-official/acme.sh/wiki/dnsapi
-    dns_provider => 'dns_cf',
+    #dns_provider => 'dns_cf',
     
     # Environment variables for the above acme.sh DNS provider
     env => {
@@ -195,6 +202,7 @@ __DATA__
     # acmeproxy.pl will generate a TLS certificate for this hostname.
     # acme.sh clients will then access acmeproxy.pl using this hostname
     # via https://<hostname>
+    # Note that you can specify multiple hostnames if they're separated by spaces.
     hostname => 'acmeproxy.int.example.com',
     
     # Hostname and port to listen on. * means all ipv4/ipv6 addresses
