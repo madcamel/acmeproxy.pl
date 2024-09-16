@@ -149,7 +149,8 @@ sub check_auth ($userpass, $fqdn) {
 # Install acme.sh
 sub acme_install {
   say "Installing acme.sh";
-  system("curl https://get.acme.sh | sh -s email=$config->{email}") && die("Couldn't install acme.sh\n");
+  my $extra_params_install = join(' ', @{$config->{acmesh_extra_params_install}});
+  system("curl https://raw.githubusercontent.com/acmesh-official/acme.sh/master/acme.sh | sh -s -- --install-online -m $config->{email} $extra_params_install") && die("ouldn't install acme.sh\n");
   say "Completed";
 }
 
@@ -157,10 +158,11 @@ sub acme_install {
 sub acme_gencert ($hn) {
   logg "Generating and installing TLS certificate for $hn";
 
-  my $extra_params = join(' ', @{$config->{acmesh_extra_params}});
+  my $extra_params_issue = join(' ', @{$config->{acmesh_extra_params_issue}});
+  my $extra_params_install_cert = join(' ', @{$config->{acmesh_extra_params_install_cert}});
   my $domain_list = join(' ', map { qq/-d ${_}/} split(/\s+/, $hn));
-  my $ret = system("$acme_home/acme.sh --log --issue $extra_params --dns $config->{dns_provider} $domain_list && ".
-	     "$acme_home/acme.sh --log --install-cert $domain_list --key-file $acme_home/acmeproxy.pl.key ".
+  my $ret = system("$acme_home/acme.sh --log --issue $extra_params_issue --dns $config->{dns_provider} $domain_list && ".
+	     "$acme_home/acme.sh --log --install-cert $extra_params_install_cert $domain_list --key-file $acme_home/acmeproxy.pl.key ".
 		    "--fullchain-file $acme_home/acmeproxy.pl.crt");
   die("Could not create TLS certificate for $hn") if ($ret);
 }
@@ -180,8 +182,14 @@ __DATA__
     # This configuration file is in perl format.
     # It is unfortunate that perl JSON does not support comments
 
-    # Extra params to be passed to acme.sh
-    acmesh_extra_params => [
+    # Extra params to be passed to acme.sh --install
+    acmesh_extra_params_install => [],
+
+    # Extra params to be passed to acme.sh --install-cert
+    acmesh_extra_params_install_cert => [],
+
+    # Extra params to be passed to acme.sh --issue
+    acmesh_extra_params_issue => [
         '--server zerossl',
     ],
 
