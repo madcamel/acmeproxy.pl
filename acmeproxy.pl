@@ -164,7 +164,8 @@ sub acme_gencert ($hn) {
   my $ret = system("$acme_home/acme.sh --log --issue $extra_params_issue --dns $config->{dns_provider} $domain_list && ".
 	     "$acme_home/acme.sh --log --install-cert $extra_params_install_cert $domain_list --key-file $acme_home/acmeproxy.pl.key ".
 		    "--fullchain-file $acme_home/acmeproxy.pl.crt");
-  die("Could not create TLS certificate for $hn") if ($ret);
+  # --issue will return 2 when renewal is skipped due to certs still being valid
+  die("Could not create TLS certificate for $hn") if ($ret != 0 && $ret != 2);
 }
 
 # Write the example configuration file
