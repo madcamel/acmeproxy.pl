@@ -158,14 +158,17 @@ sub acme_install {
 sub acme_gencert ($hn) {
   logg "Generating and installing TLS certificate for $hn";
 
-  my $extra_params_issue = join(' ', @{$config->{acmesh_extra_params_issue}});
-  my $extra_params_install_cert = join(' ', @{$config->{acmesh_extra_params_install_cert}});
   my $domain_list = join(' ', map { qq/-d ${_}/} split(/\s+/, $hn));
-  my $ret = system("$acme_home/acme.sh --log --issue $extra_params_issue --dns $config->{dns_provider} $domain_list && ".
-	     "$acme_home/acme.sh --log --install-cert $extra_params_install_cert $domain_list --key-file $acme_home/acmeproxy.pl.key ".
-		    "--fullchain-file $acme_home/acmeproxy.pl.crt");
+  my $extra_params_issue = join(' ', @{$config->{acmesh_extra_params_issue}});
+  my $ret = system("$acme_home/acme.sh --log --issue $extra_params_issue " .
+                   "--dns $config->{dns_provider} $domain_list");
   # --issue will return 2 when renewal is skipped due to certs still being valid
-  die("Could not create TLS certificate for $hn") if ($ret != 0 && $ret != 2);
+  die("Could not create TLS certificate for $hn") if ($ret != 0 && $ret >> 8 != 2);
+
+  my $extra_params_install_cert = join(' ', @{$config->{acmesh_extra_params_install_cert}});
+	my $ret = system("$acme_home/acme.sh --log --install-cert $extra_params_install_cert $domain_list " .
+                   "--key-file $acme_home/acmeproxy.pl.key --fullchain-file $acme_home/acmeproxy.pl.crt");
+  die("Could not install TLS certificate for $hn") if ($ret);
 }
 
 # Write the example configuration file
