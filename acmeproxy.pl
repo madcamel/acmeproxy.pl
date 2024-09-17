@@ -61,6 +61,9 @@ foreach my $auth (@{$config->{auth}}) {
     last;
   }
 }
+if (!exists($config->{keypair_directory})) {
+  $config->{keypair_directory} = $acme_home;
+}
 
 # Set environment variables from config
 foreach (keys %{$config->{env}}) { $ENV{$_} = $config->{env}->{$_}; }
@@ -73,8 +76,10 @@ die("acme dnslib provider not found: $config->{dns_provider}\n")
   unless (-f "$acme_home/dnsapi/$config->{dns_provider}.sh");
 
 # Generate a TLS certificate for ourselves if one doesn't exist
+my $acmeproxy_crt_file = "$config->{keypair_directory}/acmeproxy.pl.crt";
+my $acmeproxy_key_file = "$config->{keypair_directory}/acmeproxy.pl.key";
 acme_gencert($config->{hostname})
-  unless (-f "$acme_home/acmeproxy.pl.key" && -f "$acme_home/acmeproxy.pl.crt");
+  unless (-f "$acmeproxy_key_file" && -f "$acmeproxy_crt_file");
 
 # common handler for /present and /cleanup web routes
 sub handle_request {
@@ -109,19 +114,18 @@ hook before_dispatch => sub ($c) {
 # Check the TLS certificate file for changes every second and reload our app if it's been modified
 {
   my $watcher;
-  my $cert_path = "$acme_home/acmeproxy.pl.crt";
-  my $cert_mtime = (stat("$acme_home/acmeproxy.pl.crt"))[9]; 
+  my $cert_mtime = (stat("$acmeproxy_crt_file"))[9]; 
   $watcher = Mojo::IOLoop->recurring(1 => sub {
-    if ((stat($cert_path))[9] != $cert_mtime) {
-      $cert_mtime = (stat($cert_path))[9];
-      logg "$cert_path modified. Reloading";
+    if ((stat($acmeproxy_crt_file))[9] != $cert_mtime) {
+      $cert_mtime = (stat($acmeproxy_crt_file))[9];
+      logg "$acmeproxy_crt_file modified. Reloading";
       exec($^X, $0, @ARGV) or logg "reload failed!"; # Just re-exec ourselves
     }
   });
 }
 
 # Anchors aweigh!
-app->start('daemon', '-m', 'production', '-l', "https://$config->{bind}?cert=$acme_home/acmeproxy.pl.crt&key=$acme_home/acmeproxy.pl.key");
+app->start('daemon', '-m', 'production', '-l', "https://$config->{bind}?cert=$acmeproxy_crt_file&key=$acmeproxy_key_file");
 
 # Add or remove a DNS record using the configured acme.sh DNS provider
 # Hijacks acme.sh to use it's dnsapi library.
@@ -193,7 +197,7 @@ sub acme_gencert ($hn) {
 
   my $extra_params_install_cert = join(' ', @{$config->{acmesh_extra_params_install_cert}});
 	$ret = system("$acme_home/acme.sh --log --install-cert $extra_params_install_cert $domain_list " .
-                   "--key-file $acme_home/acmeproxy.pl.key --fullchain-file $acme_home/acmeproxy.pl.crt");
+                   "--key-file $acmeproxy_key_file --fullchain-file $acmeproxy_crt_file");
   die("Could not install TLS certificate for $hn") if ($ret);
 }
 
@@ -222,6 +226,10 @@ __DATA__
     acmesh_extra_params_issue => [
         '--server zerossl',
     ],
+
+    # The directory in which to store acmeproxy.pl.crt and acmeproxy.pl.key
+    # If this is left unspecified, it defaults to: "$ENV{'HOME'}/.acme.sh"
+    #keypair_directory => '',
 
     # Email address for acme.sh certificate issuance and expiration notification
     # Required for Let's Encrypt and ZeroSSL
