@@ -84,6 +84,9 @@ acmesh_extra_params_install_cert => [
 acmesh_extra_params_issue => [
     '--config-home /cert-data',
 ],
+
+# The directory to store acmeproxy.pl.crt and acmeproxy.pl.key
+keypair_directory => '/cert-data',
 ```
 
 Use the Docker CLI you can achive something similar using:
