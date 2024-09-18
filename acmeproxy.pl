@@ -286,7 +286,7 @@ __DATA__
         {
             'user' => 'bob',
             'pass' => 'dobbs',
-            'hash' => '$2b$12$ZkfzP1DVcFHSXyrtMRXJR.Ny2fpSixG00oLI2iMkT3yArpzs/921u',
+            # 'hash' => '$2b$12$ZkfzP1DVcFHSXyrtMRXJR.Ny2fpSixG00oLI2iMkT3yArpzs/921u',
             'host' => 'bob.int.example.com',
         },
         # Bob is hosting two TLS services on his machine with different TLS hostnames
@@ -294,7 +294,7 @@ __DATA__
         {
             'user' => 'bob',
             'pass' => 'dobbs',
-            'hash' => '$2b$12$ZkfzP1DVcFHSXyrtMRXJR.Ny2fpSixG00oLI2iMkT3yArpzs/921u',
+            # 'hash' => '$2b$12$ZkfzP1DVcFHSXyrtMRXJR.Ny2fpSixG00oLI2iMkT3yArpzs/921u',
             'host' => 'subgenius.int.example.com',
         },
     ],
