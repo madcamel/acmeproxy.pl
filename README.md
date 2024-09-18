@@ -64,6 +64,26 @@ services:
       - 9443/tcp
     volumes:
       - ./config:/config:rw
+      # Optionally store the generated certificate data on a persistent volume
+      # - ./cert-data:/cert-data:rw
+```
+
+Note that if you want to store the generated certificate data on a persistant volume, you should add something like the following to your `acmeproxy.pl.conf` file:
+```perl
+# Extra params to pass when invoking acme.sh --install
+acmesh_extra_params_install => [
+    '--config-home /cert-data',
+],
+
+# Extra params to pass when invoking acme.sh --install-cert
+acmesh_extra_params_install_cert => [
+    '--config-home /cert-data',
+],
+
+# Extra params to pass when invoking acme.sh --issue
+acmesh_extra_params_issue => [
+    '--config-home /cert-data',
+],
 ```
 
 Use the Docker CLI you can achive something similar using:
