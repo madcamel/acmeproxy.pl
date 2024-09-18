@@ -34,8 +34,13 @@ use Mojolicious::Lite -signatures;
 use Mojo::Util qw(secure_compare);
 use POSIX qw(strftime);
 use Cwd;
-use Crypt::Bcrypt qw(bcrypt_check);
 use strict;
+
+my $has_bcrypt = eval {
+	require Crypt::Bcrypt;
+	Crypt::Bcrypt->import();
+	1;
+};
 
 die("$0: please install curl.\n") unless (-x `/usr/bin/which curl` =~ s/[\r\n]//r);
 
@@ -55,10 +60,18 @@ if (!exists($config->{acmesh_extra_params_install_cert})) {
 if (!exists($config->{acmesh_extra_params_issue})) {
   $config->{acmesh_extra_params_issue} = [];
 }
-foreach my $auth (@{$config->{auth}}) {
-  if (exists($auth->{pass})) {
-    logg "One or more users are defined with plaintext passwords. You should convert them to bcrypt hashes!";
-    last;
+if ($has_bcrypt) {
+  foreach my $auth (@{$config->{auth}}) {
+    if (exists($auth->{pass})) {
+      logg "One or more users are defined with plaintext passwords. You should convert them to bcrypt hashes!";
+      last;
+    }
+  }
+} else {
+  foreach my $auth (@{$config->{auth}}) {
+    if (exists($auth->{hash})) {
+      die("One or more users are defined with bcrypt hashes, but Crypt::Bcrypt is not available. Either install Crypt::Bcrypt, or change these users to have a plaintext password!");
+    }
   }
 }
 if (!exists($config->{keypair_directory})) {
@@ -160,8 +173,8 @@ sub check_auth ($userpass, $fqdn) {
   foreach my $auth (@{$config->{auth}}) {
     my $auth_check = 0;
     if (secure_compare($user, $auth->{user}) && $fqdn =~ /\.$auth->{host}\.?$/) {
-      if (exists($auth->{hash})) {
-        $auth_check = bcrypt_check($pass, $auth->{hash});
+      if ($has_bcrypt && exists($auth->{hash})) {
+        $auth_check = Crypt::Bcrypt::bcrypt_check($pass, $auth->{hash});
       } else {
         $auth_check = secure_compare($pass, $auth->{pass});
       }
@@ -258,15 +271,21 @@ __DATA__
     # required to access acmeproxy.pl. Each user record is associated with a
     # specific authorized hostname. Subdomains of this hostname are also allowed.
     #
-    # Passwords stored in this file are not hashed. Please use unique randomly generated
-    # passwords.
+    # Passwords stored in this file can either be in plain text, or hashed with bcrypt.
+    # If you chose to use bcrypted passwords, you must have the Crypt::Bcrypt module
+    # installed. If Crypt::Bcrypt is installed but some users are using plain text
+    # passwords, a warning will be printed on startup. You can safely ignore this if
+    # you like.
+    #
+    # If a user has a plain text password as well as a hashed password, and the
+    # Crypt::Bcrypt module is installed, ONLY the hashed password will be checked!
     'auth' => [
         # Allow bob (password dobbs) to generate certificates for bob.int.example.com
         # bob can also use these credentials to generate certificates for subdomains
         # like slackbox.bob.int.example.com
         {
             'user' => 'bob',
-            # Plain text password is: dobbs
+            'pass' => 'dobbs',
             'hash' => '$2b$12$ZkfzP1DVcFHSXyrtMRXJR.Ny2fpSixG00oLI2iMkT3yArpzs/921u',
             'host' => 'bob.int.example.com',
         },
@@ -274,7 +293,7 @@ __DATA__
         # Allow his credentials to generate certificates for the additional hostname as well
         {
             'user' => 'bob',
-            # Plain text password is: dobbs
+            'pass' => 'dobbs',
             'hash' => '$2b$12$ZkfzP1DVcFHSXyrtMRXJR.Ny2fpSixG00oLI2iMkT3yArpzs/921u',
             'host' => 'subgenius.int.example.com',
         },
