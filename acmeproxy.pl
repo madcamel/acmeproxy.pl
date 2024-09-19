@@ -252,7 +252,8 @@ __DATA__
 
     # Which acme.sh DNS provider do we use?
     # See https://github.com/acmesh-official/acme.sh/wiki/dnsapi
-    dns_provider => 'dns_cf',
+    #dns_provider => 'dns_cf',
+    dns_provider => 'please_edit_your_configfile',
     
     # Environment variables for the above acme.sh DNS provider
     env => {
