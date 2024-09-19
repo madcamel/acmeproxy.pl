@@ -36,27 +36,63 @@ use POSIX qw(strftime);
 use Cwd;
 use strict;
 
+my $has_bcrypt = eval {
+	require Crypt::Bcrypt;
+	Crypt::Bcrypt->import();
+	1;
+};
+
 die("$0: please install curl.\n") unless (-x `/usr/bin/which curl` =~ s/[\r\n]//r);
-
-write_config() unless (-f 'acmeproxy.pl.conf');
-my $config = plugin 'Config' => {file => cwd().'/acmeproxy.pl.conf', format => 'perl'};
-
-# Set environment variables from config
-foreach (keys %{$config->{env}}) { $ENV{$_} = $config->{env}->{$_}; }
 
 # acme.sh uses this log format so we're sort of stuck with it
 sub logg ($in) { say strftime("[%a %b %e %I:%M:%S %p %Z %Y] ", localtime()) . $in };
 
+write_config() unless (-f 'acmeproxy.pl.conf');
+my $config = plugin 'Config' => {file => cwd().'/acmeproxy.pl.conf', format => 'perl'};
+
+# Backwards compatibility checks/updates
+if (!exists($config->{acmesh_extra_params_install})) {
+  $config->{acmesh_extra_params_install} = [];
+}
+if (!exists($config->{acmesh_extra_params_install_cert})) {
+  $config->{acmesh_extra_params_install_cert} = [];
+}
+if (!exists($config->{acmesh_extra_params_issue})) {
+  $config->{acmesh_extra_params_issue} = [];
+}
+if ($has_bcrypt) {
+  foreach my $auth (@{$config->{auth}}) {
+    if (exists($auth->{pass})) {
+      logg "One or more users are defined with plaintext passwords. You should convert them to bcrypt hashes!";
+      last;
+    }
+  }
+} else {
+  foreach my $auth (@{$config->{auth}}) {
+    if (exists($auth->{hash})) {
+      die("One or more users are defined with bcrypt hashes, but Crypt::Bcrypt is not available. Either install Crypt::Bcrypt, or change these users to have a plaintext password!");
+    }
+  }
+}
+if (!exists($config->{keypair_directory})) {
+  $config->{keypair_directory} = $acme_home;
+}
+
+# Set environment variables from config
+foreach (keys %{$config->{env}}) { $ENV{$_} = $config->{env}->{$_}; }
+
 # Install acme.sh if it isn't installed already
 acme_install() unless (-f "$acme_home/acme.sh");
 
-# Early sanity check
+# Early sanity checks
 die("acme dnslib provider not found: $config->{dns_provider}\n")
   unless (-f "$acme_home/dnsapi/$config->{dns_provider}.sh");
 
 # Generate a TLS certificate for ourselves if one doesn't exist
+my $acmeproxy_crt_file = "$config->{keypair_directory}/acmeproxy.pl.crt";
+my $acmeproxy_key_file = "$config->{keypair_directory}/acmeproxy.pl.key";
 acme_gencert($config->{hostname})
-  unless (-f "$acme_home/acmeproxy.pl.key" && -f "$acme_home/acmeproxy.pl.crt");
+  unless (-f "$acmeproxy_key_file" && -f "$acmeproxy_crt_file");
 
 # common handler for /present and /cleanup web routes
 sub handle_request {
@@ -91,19 +127,18 @@ hook before_dispatch => sub ($c) {
 # Check the TLS certificate file for changes every second and reload our app if it's been modified
 {
   my $watcher;
-  my $cert_path = "$acme_home/acmeproxy.pl.crt";
-  my $cert_mtime = (stat("$acme_home/acmeproxy.pl.crt"))[9]; 
+  my $cert_mtime = (stat("$acmeproxy_crt_file"))[9]; 
   $watcher = Mojo::IOLoop->recurring(1 => sub {
-    if ((stat($cert_path))[9] != $cert_mtime) {
-      $cert_mtime = (stat($cert_path))[9];
-      logg "$cert_path modified. Reloading";
+    if ((stat($acmeproxy_crt_file))[9] != $cert_mtime) {
+      $cert_mtime = (stat($acmeproxy_crt_file))[9];
+      logg "$acmeproxy_crt_file modified. Reloading";
       exec($^X, $0, @ARGV) or logg "reload failed!"; # Just re-exec ourselves
     }
   });
 }
 
 # Anchors aweigh!
-app->start('daemon', '-m', 'production', '-l', "https://$config->{bind}?cert=$acme_home/acmeproxy.pl.crt&key=$acme_home/acmeproxy.pl.key");
+app->start('daemon', '-m', 'production', '-l', "https://$config->{bind}?cert=$acmeproxy_crt_file&key=$acmeproxy_key_file");
 
 # Add or remove a DNS record using the configured acme.sh DNS provider
 # Hijacks acme.sh to use it's dnsapi library.
@@ -133,12 +168,20 @@ sub check_auth ($userpass, $fqdn) {
   }
 
   # $userpass is in the rather odd format of "username:password". Don't look at me, it's Mojolicious.
-  my $user = (split(/:/, $userpass, 2))[0];
+  my ($user, $pass) = split(/:/, $userpass, 2);
 
   foreach my $auth (@{$config->{auth}}) {
-    if (secure_compare($userpass, "$auth->{user}:$auth->{pass}") && $fqdn =~ /\.$auth->{host}\.?$/) {
-      logg "auth: $user successfully authenticated for $fqdn";
-      return 1;
+    my $auth_check = 0;
+    if (secure_compare($user, $auth->{user}) && $fqdn =~ /\.$auth->{host}\.?$/) {
+      if ($has_bcrypt && exists($auth->{hash})) {
+        $auth_check = Crypt::Bcrypt::bcrypt_check($pass, $auth->{hash});
+      } else {
+        $auth_check = secure_compare($pass, $auth->{pass});
+      }
+      if ($auth_check) {
+        logg "auth: $user successfully authenticated for $fqdn";
+        return 1;
+      }
     }
   }
  
@@ -149,7 +192,8 @@ sub check_auth ($userpass, $fqdn) {
 # Install acme.sh
 sub acme_install {
   say "Installing acme.sh";
-  system("curl https://get.acme.sh | sh -s email=$config->{email}") && die("Couldn't install acme.sh\n");
+  my $extra_params_install = join(' ', @{$config->{acmesh_extra_params_install}});
+  system("curl https://raw.githubusercontent.com/acmesh-official/acme.sh/master/acme.sh | sh -s -- --install-online -m $config->{email} $extra_params_install") && die("ouldn't install acme.sh\n");
   say "Completed";
 }
 
@@ -157,10 +201,17 @@ sub acme_install {
 sub acme_gencert ($hn) {
   logg "Generating and installing TLS certificate for $hn";
 
-  my $ret = system("$acme_home/acme.sh --force --log --issue --dns $config->{dns_provider} -d $hn && ".
-	     "$acme_home/acme.sh --log --install-cert -d $hn --key-file $acme_home/acmeproxy.pl.key ".
-		    "--fullchain-file $acme_home/acmeproxy.pl.crt");
-  die("Could not create TLS certificate for $hn") if ($ret);
+  my $domain_list = join(' ', map { qq/-d ${_}/} split(/\s+/, $hn));
+  my $extra_params_issue = join(' ', @{$config->{acmesh_extra_params_issue}});
+  my $ret = system("$acme_home/acme.sh --log --issue $extra_params_issue " .
+                   "--dns $config->{dns_provider} $domain_list");
+  # --issue will return 2 when renewal is skipped due to certs still being valid
+  die("Could not create TLS certificate for $hn") if ($ret != 0 && $ret >> 8 != 2);
+
+  my $extra_params_install_cert = join(' ', @{$config->{acmesh_extra_params_install_cert}});
+	$ret = system("$acme_home/acme.sh --log --install-cert $extra_params_install_cert $domain_list " .
+                   "--key-file $acmeproxy_key_file --fullchain-file $acmeproxy_crt_file");
+  die("Could not install TLS certificate for $hn") if ($ret);
 }
 
 # Write the example configuration file
@@ -178,13 +229,28 @@ __DATA__
     # This configuration file is in perl format.
     # It is unfortunate that perl JSON does not support comments
 
+    # Extra params to be passed to acme.sh --install
+    acmesh_extra_params_install => [],
+
+    # Extra params to be passed to acme.sh --install-cert
+    acmesh_extra_params_install_cert => [],
+
+    # Extra params to be passed to acme.sh --issue
+    acmesh_extra_params_issue => [
+        '--server zerossl',
+    ],
+
+    # The directory in which to store acmeproxy.pl.crt and acmeproxy.pl.key
+    # If this is left unspecified, it defaults to: "$ENV{'HOME'}/.acme.sh"
+    #keypair_directory => '',
+
     # Email address for acme.sh certificate issuance and expiration notification
     # Required for Let's Encrypt and ZeroSSL
     email => 'example@example.com',
 
     # Which acme.sh DNS provider do we use?
     # See https://github.com/acmesh-official/acme.sh/wiki/dnsapi
-    dns_provider => 'dns_cf',
+    #dns_provider => 'dns_cf',
     
     # Environment variables for the above acme.sh DNS provider
     env => {
@@ -195,6 +261,7 @@ __DATA__
     # acmeproxy.pl will generate a TLS certificate for this hostname.
     # acme.sh clients will then access acmeproxy.pl using this hostname
     # via https://<hostname>
+    # Note that you can specify multiple hostnames if they're separated by spaces.
     hostname => 'acmeproxy.int.example.com',
     
     # Hostname and port to listen on. * means all ipv4/ipv6 addresses
@@ -204,8 +271,14 @@ __DATA__
     # required to access acmeproxy.pl. Each user record is associated with a
     # specific authorized hostname. Subdomains of this hostname are also allowed.
     #
-    # Passwords stored in this file are not hashed. Please use unique randomly generated
-    # passwords.
+    # Passwords stored in this file can either be in plain text, or hashed with bcrypt.
+    # If you chose to use bcrypted passwords, you must have the Crypt::Bcrypt module
+    # installed. If Crypt::Bcrypt is installed but some users are using plain text
+    # passwords, a warning will be printed on startup. You can safely ignore this if
+    # you like.
+    #
+    # If a user has a plain text password as well as a hashed password, and the
+    # Crypt::Bcrypt module is installed, ONLY the hashed password will be checked!
     'auth' => [
         # Allow bob (password dobbs) to generate certificates for bob.int.example.com
         # bob can also use these credentials to generate certificates for subdomains
@@ -213,13 +286,15 @@ __DATA__
         {
             'user' => 'bob',
             'pass' => 'dobbs',
+            # 'hash' => '$2b$12$ZkfzP1DVcFHSXyrtMRXJR.Ny2fpSixG00oLI2iMkT3yArpzs/921u',
             'host' => 'bob.int.example.com',
         },
         # Bob is hosting two TLS services on his machine with different TLS hostnames
         # Allow his credentials to generate certificates for the additional hostname as well
         {
-            'pass' => 'dobbs',
             'user' => 'bob',
+            'pass' => 'dobbs',
+            # 'hash' => '$2b$12$ZkfzP1DVcFHSXyrtMRXJR.Ny2fpSixG00oLI2iMkT3yArpzs/921u',
             'host' => 'subgenius.int.example.com',
         },
     ],
