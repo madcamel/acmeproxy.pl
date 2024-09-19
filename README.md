@@ -4,28 +4,31 @@ Easy to install and use proxy server for ACME DNS challenges written in perl
 Utilizes [acme.sh](https://github.com/acmesh-official/acme.sh) to solve ACME DNS challenges for hosts on an internal network.
 
 ## tl;dr
-- Register a domain name hosted on a DNS provider supported by [acme.sh](https://github.com/acmesh-official/acme.sh)'s dnslib
-- Configure your internal DNS to locally serve records such as pictures.int.mydomain.com pointing at the internal IPs of your services.
+- Possess a domain name hosted on a DNS provider supported by the acme.sh [dnsapi](https://github.com/acmesh-official/acme.sh/wiki/dnsapi)
+- Configure your internal DNS to locally serve records such as pictures.int.example.com pointing at the internal IP of your services
 - Setup acmeproxy.pl and give it access to your DNS provider's API.
-- Use acme.sh on internal hosts to request and maintain TLS certificates for *.int.mydomain.com hostnames via acmeproxy
+- Use acme.sh on internal hosts to request and maintain TLS certificates for *.int.example.com hostnames via acmeproxy
 
-Shebam! You now have real TLS certificates for your internal services that have been signed by a trusted CA. https:// will Just Work from every device. No need to run your own certificate authority and jump through hoops!
+Shebam! You now have TLS certificates for your internal services that have been signed by a trusted CA. https:// will Just Work from every device.
 
 ## Why?
-acmeproxy.pl was written to make it easier and safer to automatically issue per-service [Let's Encrypt](https://letsencrypt.org) TLS certificates on an internal network.
+acmeproxy.pl was written to make it easier and safer to automatically issue per-service [Let's Encrypt](https://letsencrypt.org) or [ZeroSSL](https://zerossl.com/) TLS certificates on an internal network.
 
 There are three main ways to handle internal TLS certificates:
 - Run a certificate authority. This is good for enterprises but probably overkill for smaller setups.
 
 - Use something like certbot to generate certificates on a central host, then distribute the certificates to every host on the network. This can be error prone and difficult to orchestrate.
+
 - Allow individual hosts to manage their own certificates by providing access to the DNS API for acme challenges. This is convenient but a massive security risk as every host will have unfettered access to the DNS API.
 
 
-As a solution acmeproxy.pl provides the following:
-- Allow internal hosts to request ACME DNS challenges through a single host, without individual / full API access to the DNS provider
-- Provide a single (acmeproxy.pl) host that has access to the DNS credentials / API, limiting a possible attack surface
-- Fine grained access control by tying usernames to allowed certificate hostnames
+As a fourth solution acmeproxy.pl provides the following:
+- Allow internal non internet-exposed hosts to easily request TLS certificates using acme.sh
+- Only the acmeproxy.pl service requires access to the DNS credentials, not all hosts
+- Fine grained access control by tying credentials to allowed certificate hostnames
+- Centralized service for logging and audit purposes
 - Installs and manages its own TLS cetrificate via acme.sh
+- Easy to use, few dependencies
 
 ## Install
 Install dependencies:
@@ -107,7 +110,7 @@ acme.sh --log --issue dns dns_acmeproxy -d bob.int.example.com
 ```
 You will then want to install the certificate with something like:
 ```bash
-acme.sh --log --install-cert -d $hn --key-file /etc/nginx/bob.key --fullchain-file /etc/nginx/bob.crt --reloadcmd "systemctl reload nginx.service"
+acme.sh --log --install-cert -d bob.int.example.com --key-file /etc/nginx/bob.key --fullchain-file /etc/nginx/bob.crt --reloadcmd "systemctl reload nginx.service"
 ```
 
 This is not always the best way to do things. Please refer to the acme.sh documentation.
