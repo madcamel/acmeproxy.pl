@@ -48,6 +48,7 @@ die("$0: please install curl.\n") unless (-x `/usr/bin/which curl` =~ s/[\r\n]//
 sub logg ($in) { say strftime("[%a %b %e %I:%M:%S %p %Z %Y] ", localtime()) . $in };
 
 write_config() unless (-f 'acmeproxy.pl.conf');
+logg('WARNING: acmeproxy.pl.conf is world-readable. Please chmod 0600 acmeproxy.pl.conf') if ((stat('acmeproxy.pl.conf'))[2] & 04);
 my $config = plugin 'Config' => {file => cwd().'/acmeproxy.pl.conf', format => 'perl'};
 
 # Backwards compatibility checks/updates
@@ -219,6 +220,7 @@ sub write_config() {
   open(my $fh, '>', 'acmeproxy.pl.conf') or die $!;
   print $fh $_ while <DATA>;
   close $fh;
+  chmod(0600, 'acmeproxy.pl.conf');
   die("Example configuration file written. Please edit acmeproxy.pl.conf and restart\n");
 }
 
@@ -250,7 +252,7 @@ __DATA__
 
     # Which acme.sh DNS provider do we use?
     # See https://github.com/acmesh-official/acme.sh/wiki/dnsapi
-    #dns_provider => 'dns_cf',
+    dns_provider => 'dns_cf',
     
     # Environment variables for the above acme.sh DNS provider
     env => {
