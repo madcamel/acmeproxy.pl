@@ -36,13 +36,10 @@ use POSIX qw(strftime);
 use Cwd;
 use strict;
 
-my $has_bcrypt = eval {
-	require Crypt::Bcrypt;
-	Crypt::Bcrypt->import();
-	1;
-};
+my $has_bcrypt = eval { require Crypt::Bcrypt; 1 };
 
-die("$0: please install curl.\n") unless (-x `/usr/bin/which curl` =~ s/[\r\n]//r);
+chomp(my $curl_path = qx(command -v curl));
+die("$0: please install curl.\n") unless -x $curl_path;
 
 # acme.sh uses this log format so we're sort of stuck with it
 sub logg ($in) { say strftime("[%a %b %e %I:%M:%S %p %Z %Y] ", localtime()) . $in };
@@ -51,33 +48,22 @@ write_config() unless (-f 'acmeproxy.pl.conf');
 logg('WARNING: acmeproxy.pl.conf is world-readable. Please chmod 0600 acmeproxy.pl.conf') if ((stat('acmeproxy.pl.conf'))[2] & 04);
 my $config = plugin 'Config' => {file => cwd().'/acmeproxy.pl.conf', format => 'perl'};
 
-# Backwards compatibility checks/updates
-if (!exists($config->{acmesh_extra_params_install})) {
-  $config->{acmesh_extra_params_install} = [];
+# Backwards compatibility defaults
+$config->{acmesh_extra_params_install}      = [] unless exists $config->{acmesh_extra_params_install};
+$config->{acmesh_extra_params_install_cert} = [] unless exists $config->{acmesh_extra_params_install_cert};
+$config->{acmesh_extra_params_issue}        = [] unless exists $config->{acmesh_extra_params_issue};
+$config->{keypair_directory}                = $acme_home unless exists $config->{keypair_directory};
+
+# Validate auth entries against bcrypt availability
+my ($has_plaintext, $has_hash) = (0, 0);
+foreach my $auth (@{$config->{auth}}) {
+  $has_plaintext ||= exists $auth->{pass};
+  $has_hash      ||= exists $auth->{hash};
 }
-if (!exists($config->{acmesh_extra_params_install_cert})) {
-  $config->{acmesh_extra_params_install_cert} = [];
-}
-if (!exists($config->{acmesh_extra_params_issue})) {
-  $config->{acmesh_extra_params_issue} = [];
-}
-if ($has_bcrypt) {
-  foreach my $auth (@{$config->{auth}}) {
-    if (exists($auth->{pass})) {
-      logg "One or more users are defined with plaintext passwords. You should convert them to bcrypt hashes!";
-      last;
-    }
-  }
-} else {
-  foreach my $auth (@{$config->{auth}}) {
-    if (exists($auth->{hash})) {
-      die("One or more users are defined with bcrypt hashes, but Crypt::Bcrypt is not available. Either install Crypt::Bcrypt, or change these users to have a plaintext password!");
-    }
-  }
-}
-if (!exists($config->{keypair_directory})) {
-  $config->{keypair_directory} = $acme_home;
-}
+die("One or more users are defined with bcrypt hashes, but Crypt::Bcrypt is not available. Either install Crypt::Bcrypt, or change these users to have a plaintext password!\n")
+  if ($has_hash && !$has_bcrypt);
+logg "One or more users are defined with plaintext passwords. You should convert them to bcrypt hashes!"
+  if ($has_plaintext && $has_bcrypt);
 
 # Set environment variables from config
 foreach (keys %{$config->{env}}) { $ENV{$_} = $config->{env}->{$_}; }
@@ -128,17 +114,14 @@ hook before_dispatch => sub ($c) {
 
 # We used acme.sh to generate our TLS certificate so its cron job should update our cert regularly
 # Check the TLS certificate file for changes every second and reload our app if it's been modified
-{
-  my $watcher;
-  my $cert_mtime = (stat("$acmeproxy_crt_file"))[9]; 
-  $watcher = Mojo::IOLoop->recurring(1 => sub {
-    if ((stat($acmeproxy_crt_file))[9] != $cert_mtime) {
-      $cert_mtime = (stat($acmeproxy_crt_file))[9];
-      logg "$acmeproxy_crt_file modified. Reloading";
-      exec($^X, $0, @ARGV) or logg "reload failed!"; # Just re-exec ourselves
-    }
-  });
-}
+my $cert_mtime = (stat($acmeproxy_crt_file))[9];
+Mojo::IOLoop->recurring(1 => sub {
+  my $mtime = (stat($acmeproxy_crt_file))[9];
+  return if $mtime == $cert_mtime;
+  $cert_mtime = $mtime;
+  logg "$acmeproxy_crt_file modified. Reloading";
+  exec($^X, $0, @ARGV) or logg "reload failed!"; # Just re-exec ourselves
+});
 
 # Anchors aweigh!
 app->mode('production');
@@ -153,15 +136,19 @@ sub acme_cmd ($action, $fqdn, $value) {
   return { text => "invalid characters in value", status => 400} unless ($value =~ /^[\w_\.-]+$/);
   $fqdn =~ s/\.+$//; # Some acme.sh plugins add an additional . to the end of the hostname
 
-  my $shellcmd = '/usr/bin/env bash -c "' .
-    "source $acme_home/acme.sh >/dev/null 2>&1; " .     		                  # Load all bash functions from acme.sh
-    "source $acme_home/dnsapi/$config->{dns_provider}.sh; " .			            # source ~/.acme.sh/dns_cf.sh
-    $config->{dns_provider}.'_'.$action.' \"'.$fqdn.'\" '.'\"'.$value.'\";"';	# dns_cf_add "sub.domain.com" "value123456"
-  logg "executing: $shellcmd";
+  # Source acme.sh and the dnsapi provider, then call the provider's add/rm function.
+  # fqdn and value are passed as positional args ($1, $2) rather than interpolated into
+  # the shell string, so they can never be parsed as shell syntax.
+  my $func = $config->{dns_provider}.'_'.$action;
+  my $script = "source $acme_home/acme.sh >/dev/null 2>&1; " .
+               "source $acme_home/dnsapi/$config->{dns_provider}.sh; " .
+               '"$0" "$1" "$2"';
+  logg "executing: $func \"$fqdn\" \"$value\"";
 
   # acme.sh/dnslib/dns_acmeproxy.sh explicitly looks for the quotes around $value to determine success
   # other clients expect full JSON and fqdn needs to end with "."
-  return { text => "{\"fqdn\": \"$fqdn.\", \"value\": \"$value\"}", status => 200} unless (system("$shellcmd"));
+  return { text => "{\"fqdn\": \"$fqdn.\", \"value\": \"$value\"}", status => 200}
+    unless (system('/usr/bin/env', 'bash', '-c', $script, $func, $fqdn, $value));
   return { text => "failed. check acmeproxy.pl logs", status => 500};
 }
 
@@ -176,17 +163,15 @@ sub check_auth ($userpass, $fqdn) {
   my ($user, $pass) = split(/:/, $userpass, 2);
 
   foreach my $auth (@{$config->{auth}}) {
-    my $auth_check = 0;
-    if (secure_compare($user, $auth->{user}) && $fqdn =~ /\.$auth->{host}\.?$/) {
-      if ($has_bcrypt && exists($auth->{hash})) {
-        $auth_check = Crypt::Bcrypt::bcrypt_check($pass, $auth->{hash});
-      } else {
-        $auth_check = secure_compare($pass, $auth->{pass});
-      }
-      if ($auth_check) {
-        logg "auth: $user successfully authenticated for $fqdn";
-        return 1;
-      }
+    next unless secure_compare($user, $auth->{user}) && $fqdn =~ /\.$auth->{host}\.?$/;
+
+    my $ok = ($has_bcrypt && exists $auth->{hash})
+      ? Crypt::Bcrypt::bcrypt_check($pass, $auth->{hash})
+      : secure_compare($pass, $auth->{pass});
+
+    if ($ok) {
+      logg "auth: $user successfully authenticated for $fqdn";
+      return 1;
     }
   }
  
@@ -198,7 +183,7 @@ sub check_auth ($userpass, $fqdn) {
 sub acme_install {
   say "Installing acme.sh";
   my $extra_params_install = join(' ', @{$config->{acmesh_extra_params_install}});
-  system("curl https://raw.githubusercontent.com/acmesh-official/acme.sh/master/acme.sh | sh -s -- --install-online -m $config->{email} $extra_params_install") && die("ouldn't install acme.sh\n");
+  system("curl https://raw.githubusercontent.com/acmesh-official/acme.sh/master/acme.sh | sh -s -- --install-online -m $config->{email} $extra_params_install") && die("Couldn't install acme.sh\n");
   say "Completed";
 }
 
@@ -214,8 +199,8 @@ sub acme_gencert ($hn) {
   die("Could not create TLS certificate for $hn") if ($ret != 0 && $ret >> 8 != 2);
 
   my $extra_params_install_cert = join(' ', @{$config->{acmesh_extra_params_install_cert}});
-	$ret = system("$acme_home/acme.sh --log --install-cert $extra_params_install_cert $domain_list " .
-                   "--key-file $acmeproxy_key_file --fullchain-file $acmeproxy_crt_file");
+  $ret = system("$acme_home/acme.sh --log --install-cert $extra_params_install_cert $domain_list " .
+                "--key-file $acmeproxy_key_file --fullchain-file $acmeproxy_crt_file");
   die("Could not install TLS certificate for $hn") if ($ret);
 }
 
