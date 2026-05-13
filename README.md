@@ -36,19 +36,30 @@ Install dependencies:
  - others: install curl and cpanminus. run ```cpanm Mojolicious```
 
 
-Download acmeproxy.pl
+Download acmeproxy.pl:
 ```bash
-curl -O https://raw.githubusercontent.com/madcamel/acmeproxy.pl/master/acmeproxy.pl; chmod +x acmeproxy.pl
+curl -O https://raw.githubusercontent.com/madcamel/acmeproxy.pl/master/acmeproxy.pl
+chmod +x acmeproxy.pl
 ```
-run ./acmeproxy.pl to generate a the acmeproxy.pl.conf configuration file. 
 
-Edit the configuration then run ./acmeproxy.pl again. If it is able to generate it's own TLS certificate you probably have configured the DNS provider correctly.
+Run `./acmeproxy.pl` directly to generate `acmeproxy.pl.conf`. Edit it, then run `./acmeproxy.pl` again. For initial testing it's best to run it directly so you can see the output. If it generates its own TLS certificate you've configured the DNS provider correctly.
 
- To daemonize: 
- - use systemd
- - OR ```nohup ./acmeproxy.pl >>acmeproxy.log 2>&1 &```
- - OR ```hypnotoad acmeproxy.pl```
- - OR run it in tmux like some sort of heathen
+For normal use, acmeproxy.pl manages its own process and logs to `acmeproxy.log`:
+```bash
+./acmeproxy.pl start    # start in background
+./acmeproxy.pl stop     # stop
+./acmeproxy.pl reload   # restart (e.g. after editing config)
+./acmeproxy.pl status   # check if running
+./acmeproxy.pl check    # restart if dead; suitable for cron
+```
+
+To have it restart automatically if it dies, add a crontab entry:
+```
+*/5 * * * * /path/to/acmeproxy.pl check >/dev/null
+@reboot /path/to/acmeproxy.pl check >/dev/null
+```
+
+Or just run it in tmux like some sort of heathen.
 
 ## Docker
 

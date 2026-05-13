@@ -36,6 +36,42 @@ use POSIX qw(strftime);
 use Cwd;
 use strict;
 
+my $pidfile = cwd().'/acmeproxy.pid';
+my $logfile  = cwd().'/acmeproxy.log';
+
+if (@ARGV) {
+  my $cmd = $ARGV[0];
+  if ($cmd eq 'stop') {
+    do_stop(); exit;
+  } elsif ($cmd eq 'status') {
+    my $pid = is_running();
+    say $pid ? "running (pid $pid)" : "not running"; exit;
+  } elsif ($cmd eq 'check') {
+    exit 0 if is_running();
+    print "not running, restarting\n";
+    unlink $pidfile;
+    exec($^X, $0, 'start') or die "exec failed: $!";
+  } elsif ($cmd eq 'reload') {
+    do_stop(); sleep 1;
+    exec($^X, $0, 'start') or die "exec failed: $!";
+  } elsif ($cmd eq 'start') {
+    if (my $pid = is_running()) {
+      print "already running (pid $pid)\n"; exit 1;
+    }
+    shift @ARGV;
+    my $child = fork() // die "fork: $!";
+    if ($child) {
+      open(my $pf, '>', $pidfile) or die "pidfile: $!";
+      print $pf $child; close $pf;
+      print "started (pid $child)\n";
+      exit 0;
+    }
+    POSIX::setsid();
+    open(STDOUT, '>>', $logfile) or die;
+    open(STDERR, '>&STDOUT')     or die;
+  }
+}
+
 my $has_bcrypt = eval { require Crypt::Bcrypt; 1 };
 
 chomp(my $curl_path = qx{command -v curl 2>/dev/null});
@@ -215,6 +251,18 @@ sub acme_gencert ($hn) {
   $ret = system("$acme_home/acme.sh --log --install-cert $extra_params_install_cert $domain_list " .
                 "--key-file $acmeproxy_key_file --fullchain-file $acmeproxy_crt_file");
   die("Could not install TLS certificate for $hn") if ($ret);
+}
+
+sub is_running {
+  return 0 unless -f $pidfile;
+  open(my $fh, '<', $pidfile) or return 0;
+  chomp(my $pid = <$fh>); close $fh;
+  return ($pid && kill(0, $pid)) ? $pid : 0;
+}
+
+sub do_stop {
+  my $pid = is_running() or do { print "not running\n"; return; };
+  kill('TERM', $pid) and unlink($pidfile) and print "stopped\n";
 }
 
 # Write the example configuration file
