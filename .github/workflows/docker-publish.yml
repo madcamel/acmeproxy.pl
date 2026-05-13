@@ -20,16 +20,32 @@ env:
   IMAGE_NAME: ${{ github.repository }}
 
 jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Perl dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libmojolicious-perl \
+            libcrypt-bcrypt-perl \
+            libtest-without-module-perl \
+            curl
+
+      - name: Run test harness
+        run: make -C t test
+
   build:
+    needs: test
     strategy:
       fail-fast: false
       matrix:
         platform:
           - docker: linux/amd64
             s6arch: x86_64
-          - docker: linux/arm/v7
-            qemu: arm
-            s6arch: arm
           - docker: linux/arm64/v8
             qemu: arm64
             s6arch: aarch64
