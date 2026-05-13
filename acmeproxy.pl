@@ -38,7 +38,7 @@ use strict;
 
 my $has_bcrypt = eval { require Crypt::Bcrypt; 1 };
 
-chomp(my $curl_path = qx(command -v curl));
+chomp(my $curl_path = qx{command -v curl 2>/dev/null});
 die("$0: please install curl.\n") unless -x $curl_path;
 
 # acme.sh uses this log format so we're sort of stuck with it
@@ -125,7 +125,8 @@ Mojo::IOLoop->recurring(1 => sub {
 
 # Anchors aweigh!
 app->mode('production');
-app->start('daemon', '-l', "https://$config->{bind}?cert=$acmeproxy_crt_file&key=$acmeproxy_key_file");
+app->start('daemon', '-l', "https://$config->{bind}?cert=$acmeproxy_crt_file&key=$acmeproxy_key_file")
+  unless caller;
 
 # Add or remove a DNS record using the configured acme.sh DNS provider
 # Hijacks acme.sh to use it's dnsapi library.
