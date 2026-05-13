@@ -97,7 +97,12 @@ sub handle_request {
 
   my $cmd_res = acme_cmd($command, $data->{fqdn}, $data->{value});
 
-  $c->render(text => $cmd_res->{'text'}, status => $cmd_res->{'status'});
+  my $accept = $c->req->headers->accept;
+  if (defined $accept && $accept eq 'application/json') {
+    $c->render(json => $cmd_res->{json}, status => $cmd_res->{status});
+  } else {
+    $c->render(text => $cmd_res->{text}, status => $cmd_res->{status});
+  }
 }
 
 # Mojo web routes
@@ -133,8 +138,13 @@ app->start('daemon', '-l', "https://$config->{bind}?cert=$acmeproxy_crt_file&key
 # Crude but effective. Slimy yet satisfying.
 sub acme_cmd ($action, $fqdn, $value) {
   # Let's not pass weird characters to a shell
-  return { text => "invalid characters in fqdn", status => 400} unless ($fqdn =~ /^[\w_\.-]+$/);
-  return { text => "invalid characters in value", status => 400} unless ($value =~ /^[\w_\.-]+$/);
+  return { status => 400, text => "invalid characters in fqdn",
+           json => { error => "invalid characters in fqdn" } }
+    unless ($fqdn =~ /^[\w_\.-]+$/);
+  return { status => 400, text => "invalid characters in value",
+           json => { error => "invalid characters in value" } }
+    unless ($value =~ /^[\w_\.-]+$/);
+  my $fqdn_unsanitized = $fqdn;
   $fqdn =~ s/\.+$//; # Some acme.sh plugins add an additional . to the end of the hostname
 
   # Source acme.sh and the dnsapi provider, then call the provider's add/rm function.
@@ -146,11 +156,13 @@ sub acme_cmd ($action, $fqdn, $value) {
                '"$0" "$1" "$2"';
   logg "executing: $func \"$fqdn\" \"$value\"";
 
-  # acme.sh/dnslib/dns_acmeproxy.sh explicitly looks for the quotes around $value to determine success
-  # other clients expect full JSON and fqdn needs to end with "."
-  return { text => "{\"fqdn\": \"$fqdn.\", \"value\": \"$value\"}", status => 200}
-    unless (system('/usr/bin/env', 'bash', '-c', $script, $func, $fqdn, $value));
-  return { text => "failed. check acmeproxy.pl logs", status => 500};
+  return {
+    status => 200,
+    text   => qq/success: $fqdn "$value"/,
+    json   => { fqdn => $fqdn_unsanitized, value => $value },
+  } unless (system('/usr/bin/env', 'bash', '-c', $script, $func, $fqdn, $value));
+  return { status => 500, text => "failed. check acmeproxy.pl logs",
+           json => { error => "failed. check acmeproxy.pl logs" } };
 }
 
 # Authentication helper. Checks user:pass and fqdn against our authlist

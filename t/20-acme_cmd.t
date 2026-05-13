@@ -29,19 +29,23 @@ for my $c (@metachars) {
 # --- happy path ------------------------------------------------------------
 my $res = main::acme_cmd('add', '_acme-challenge.bob.example.com', 'token123');
 is($res->{status}, 200, 'valid add returns 200');
-like($res->{text}, qr/"fqdn":\s*"_acme-challenge\.bob\.example\.com\."/,
-    'response includes fqdn with trailing dot');
-like($res->{text}, qr/"value":\s*"token123"/,
-    'response includes value');
+like($res->{text}, qr/^success: _acme-challenge\.bob\.example\.com "token123"$/,
+    'text response is "success: <fqdn> \"<value>\""');
+is_deeply($res->{json},
+    { fqdn => '_acme-challenge.bob.example.com', value => 'token123' },
+    'json response is {fqdn, value} dict');
 
 # --- trailing-dot normalization -------------------------------------------
+# text uses stripped fqdn; json preserves the caller's exact input
 $res = main::acme_cmd('add', '_acme-challenge.bob.example.com.', 'tok');
-like($res->{text}, qr/"fqdn":\s*"_acme-challenge\.bob\.example\.com\."/,
-    'trailing dot stripped then re-added');
+like($res->{text}, qr/^success: _acme-challenge\.bob\.example\.com "tok"$/,
+    'text uses fqdn with trailing dots stripped');
+is($res->{json}{fqdn}, '_acme-challenge.bob.example.com.',
+    'json preserves caller fqdn with its trailing dot');
 
 $res = main::acme_cmd('add', '_acme-challenge.bob.example.com...', 'tok');
-like($res->{text}, qr/"fqdn":\s*"_acme-challenge\.bob\.example\.com\."/,
-    'multiple trailing dots collapsed to one');
+like($res->{text}, qr/^success: _acme-challenge\.bob\.example\.com "tok"$/,
+    'text strips multiple trailing dots');
 
 # --- rm action -------------------------------------------------------------
 $res = main::acme_cmd('rm', '_acme-challenge.bob.example.com', 'token123');

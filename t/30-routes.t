@@ -68,8 +68,8 @@ clear_log();
 $t->post_ok('/present' => { Authorization => basic('bob', 'dobbs') }
                        => json => { fqdn => '_acme-challenge.bob.example.com', value => 'tok' })
     ->status_is(200)
-    ->content_like(qr/"fqdn":\s*"_acme-challenge\.bob\.example\.com\."/)
-    ->content_like(qr/"value":\s*"tok"/);
+    ->content_like(qr/^success: _acme-challenge\.bob\.example\.com "tok"$/)
+    ->header_like('Content-Type', qr{^text/});
 ok((grep { /auth: bob successfully authenticated/ } @LOG_LINES),
    'success audit log present')
     or diag explain \@LOG_LINES;
@@ -86,7 +86,7 @@ clear_calls();
 $t->post_ok('/cleanup' => { Authorization => basic('bob', 'dobbs') }
                        => json => { fqdn => '_acme-challenge.bob.example.com', value => 'tok' })
     ->status_is(200)
-    ->content_like(qr/"fqdn":\s*"_acme-challenge\.bob\.example\.com\."/);
+    ->content_like(qr/^success: _acme-challenge\.bob\.example\.com "tok"$/);
 
 @lines = grep { length } split /\n/, call_log();
 is(scalar @lines, 1, '/cleanup invokes dnsapi once (rm only)');
