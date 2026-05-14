@@ -1,34 +1,16 @@
 # acmeproxy.pl
-Easy to install and use proxy server for ACME DNS challenges written in perl
-
-Utilizes [acme.sh](https://github.com/acmesh-official/acme.sh) to solve ACME DNS challenges for hosts on an internal network.
+Proxy server for ACME DNS-01 challenges, with native support in [acme.sh](https://github.com/acmesh-official/acme.sh), [Caddy](https://caddyserver.com), and [Traefik](https://traefik.io)
 
 ## tl;dr
 - Possess a domain name hosted on a DNS provider supported by the acme.sh [dnsapi](https://github.com/acmesh-official/acme.sh/wiki/dnsapi)
 - Configure your internal DNS to locally serve records such as pictures.int.example.com pointing at the internal IP of your services
-- Setup acmeproxy.pl and give it access to your DNS provider's API.
-- Use acme.sh on internal hosts to request and maintain TLS certificates for *.int.example.com hostnames via acmeproxy
+- Set up acmeproxy.pl and give it access to your DNS provider's API.
+- Use acme.sh, Caddy, or Traefik on internal hosts to request and maintain TLS certificates for *.int.example.com hostnames via acmeproxy
 
-Shebam! You now have TLS certificates for your internal services that have been signed by a trusted CA. https:// will Just Work from every device.
+You now have TLS certificates for your internal services that have been signed by a trusted CA. https:// will Just Work from every device.
 
 ## Why?
-acmeproxy.pl was written to make it easier and safer to automatically issue per-service [Let's Encrypt](https://letsencrypt.org) or [ZeroSSL](https://zerossl.com/) TLS certificates on an internal network.
-
-There are three main ways to handle internal TLS certificates:
-- Run a certificate authority. This is good for enterprises but probably overkill for smaller setups.
-
-- Use something like certbot to generate certificates on a central host, then distribute the certificates to every host on the network. This can be error prone and difficult to orchestrate.
-
-- Allow individual hosts to manage their own certificates by providing access to the DNS API for acme challenges. This is convenient but a massive security risk as every host will have unfettered access to the DNS API.
-
-
-As a fourth solution acmeproxy.pl provides the following:
-- Allow internal non internet-exposed hosts to easily request TLS certificates using acme.sh
-- Only the acmeproxy.pl service requires access to the DNS credentials, not all hosts
-- Fine grained access control by tying credentials to allowed certificate hostnames
-- Centralized service for logging and audit purposes
-- Installs and manages its own TLS cetrificate via acme.sh
-- Easy to use, few dependencies
+Internal hosts need per-service TLS certificates, but giving every host direct DNS API credentials is a major security risk. acmeproxy.pl solves this by acting as an authenticated proxy. It centrally holds the sensitive DNS credentials and restricts access, ensuring users can only request certificates for their specifically authorized hostnames.
 
 ## Install
 Install dependencies:
@@ -55,62 +37,15 @@ For normal use, acmeproxy.pl manages its own process and logs to `acmeproxy.log`
 
 To have it restart automatically if it dies, add a crontab entry:
 ```
-*/5 * * * * /path/to/acmeproxy.pl check >/dev/null
-@reboot /path/to/acmeproxy.pl check >/dev/null
+*/5 * * * * /path/to/acmeproxy.pl check >/dev/null 2>&1
+@reboot /path/to/acmeproxy.pl check >/dev/null 2>&1
 ```
 
 Or just run it in tmux like some sort of heathen.
 
-## Docker
+acmeproxy.pl does not require a restart when acme.sh renews its TLS certificate.
 
-To use the tool with docker you have 2 options: docker CLI or docker compose.
-
-For docker compose you can use the following file as a reference:
-```yaml
-# $schema: "https://raw.githubusercontent.com/compose-spec/compose-spec/master/schema/compose-spec.json"
-name: "acmeproxy"
-
-services:
-  acmeproxy:
-    image: ghcr.io/madcamel/acmeproxy.pl
-    restart: unless-stopped
-    port: # Or use expose when using a reverse proxy
-      - 9443/tcp
-    volumes:
-      - ./config:/config:rw
-      # Optionally store the generated certificate data on a persistent volume
-      # - ./cert-data:/cert-data:rw
-```
-
-Note that if you want to store the generated certificate data on a persistant volume, you should add something like the following to your `acmeproxy.pl.conf` file:
-```perl
-# Extra params to pass when invoking acme.sh --install
-acmesh_extra_params_install => [
-    '--config-home /cert-data',
-],
-
-# Extra params to pass when invoking acme.sh --install-cert
-acmesh_extra_params_install_cert => [
-    '--config-home /cert-data',
-],
-
-# Extra params to pass when invoking acme.sh --issue
-acmesh_extra_params_issue => [
-    '--config-home /cert-data',
-],
-
-# The directory to store acmeproxy.pl.crt and acmeproxy.pl.key
-keypair_directory => '/cert-data',
-```
-
-Use the Docker CLI you can achive something similar using:
-```console
-docker run \
-  -p 9443/tcp \
-  -v /path/to/config:/config:rw \
-  --restart unless-stopped \
-  ghcr.io/madcamel/acmeproxy.pl
-```
+## Usage
 
 ### Using acme.sh with acmeproxy
 Sample acme.sh usage:
@@ -124,7 +59,48 @@ You will then want to install the certificate with something like:
 acme.sh --log --install-cert -d bob.int.example.com --key-file /etc/nginx/bob.key --fullchain-file /etc/nginx/bob.crt --reloadcmd "systemctl reload nginx.service"
 ```
 
-This is not always the best way to do things. Please refer to the acme.sh documentation.
+See `acme.sh --help install-cert` for the full list of `--reloadcmd` and deploy-hook options.
+
+Traefik supports acmeproxy via the ['httpreq'](https://doc.traefik.io/traefik/v3.3/https/acme/#providers) provider.
+Caddy supports acmeproxy via the ['acmeproxy'](https://caddyserver.com/docs/json/admin/identity/issuers/acme/challenges/dns/provider/acmeproxy) provider
+
+## Docker
+
+**docker compose:**
+```yaml
+name: "acmeproxy"
+
+services:
+  acmeproxy:
+    image: ghcr.io/madcamel/acmeproxy.pl
+    restart: unless-stopped
+    ports:
+      - "9443:9443"
+    volumes:
+      - ./config:/config:rw
+```
+
+**docker CLI:**
+```console
+docker run -d \
+  -p 9443:9443 \
+  -v /path/to/config:/config:rw \
+  --restart unless-stopped \
+  ghcr.io/madcamel/acmeproxy.pl
+```
+
+If you're using a reverse proxy, replace `ports` with `expose` in compose (or drop `-p` from the CLI command).
+
+### Persistent certificate storage
+
+Without persistence, every container restart triggers a fresh ACME issuance. Let's Encrypt caps duplicate certificates at 5 per week. To persist certificate data, add a volume mount (`-v /path/to/cert-data:/cert-data:rw` or the compose equivalent) and add to `acmeproxy.pl.conf`:
+
+```perl
+acmesh_extra_params_install      => ['--config-home /cert-data'],
+acmesh_extra_params_install_cert => ['--config-home /cert-data'],
+acmesh_extra_params_issue        => ['--config-home /cert-data'],
+keypair_directory                => '/cert-data',
+```
 
 ## Security Notes
 acmeproxy.pl was written to be run within an internal network. It's not recommended to expose your acmeproxy.pl host to the outside world.
