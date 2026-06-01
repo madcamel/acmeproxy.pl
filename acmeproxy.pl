@@ -101,17 +101,71 @@ die("One or more users are defined with bcrypt hashes, but Crypt::Bcrypt is not 
 logg "One or more users are defined with plaintext passwords. You should convert them to bcrypt hashes!"
   if ($has_plaintext && $has_bcrypt);
 
-# Set environment variables from config
-foreach (keys %{$config->{env}}) { $ENV{$_} = $config->{env}->{$_}; }
+# Set environment variables from config (legacy single-provider mode)
+unless (exists $config->{providers}) {
+  foreach (keys %{$config->{env}}) {
+    $ENV{$_} = $config->{env}->{$_};
+  }
+}
+
+# Returns true if fqdn belongs to domain suffix
+sub fqdn_matches_domain ($fqdn, $domain) {
+  $fqdn =~ s/\.+$//;
+  $domain =~ s/\.+$//;
+
+  return 1 if ($fqdn eq $domain);
+  return $fqdn =~ /\.\Q$domain\E$/;
+}
+
+# Find matching provider config for fqdn
+sub get_provider_config_for_fqdn ($fqdn) {
+  $fqdn =~ s/\.+$//;
+
+  # Legacy single-provider mode
+  unless (exists $config->{providers}) {
+    return {
+      dns_provider => $config->{dns_provider},
+      env => $config->{env},
+    };
+  }
+
+  foreach my $provider (@{$config->{providers}}) {
+    foreach my $domain (@{$provider->{domains}}) {
+      return $provider
+        if fqdn_matches_domain($fqdn, $domain);
+    }
+  }
+
+  die("No provider configured for domain: $fqdn\n");
+}
+
 
 # Install acme.sh if it isn't installed already
 acme_install() unless (-f "$acme_home/acme.sh");
 
 # Early sanity checks
-die("acme dnslib provider not found: $config->{dns_provider}\n")
-  unless (-f "$acme_home/dnsapi/$config->{dns_provider}.sh");
+if (exists $config->{providers}) {
+  foreach my $provider (@{$config->{providers}}) {
+    die("provider entry missing dns_provider\n")
+      unless exists $provider->{dns_provider};
+
+    die("provider entry missing domains\n")
+      unless exists $provider->{domains};
+
+    die("provider entry missing env\n")
+      unless exists $provider->{env};
+
+    die("acme dnslib provider not found: $provider->{dns_provider}\n")
+      unless (-f "$acme_home/dnsapi/$provider->{dns_provider}.sh");
+  }
+} else {
+  die("acme dnslib provider not found: $config->{dns_provider}\n")
+    unless (-f "$acme_home/dnsapi/$config->{dns_provider}.sh");
+}
 
 # Generate a TLS certificate for ourselves if one doesn't exist
+# Self-certificate always uses legacy global dns_provider/env config
+# even in multi-provider mode.
 my $acmeproxy_crt_file = "$config->{keypair_directory}/acmeproxy.pl.crt";
 my $acmeproxy_key_file = "$config->{keypair_directory}/acmeproxy.pl.key";
 acme_gencert($config->{hostname})
@@ -183,14 +237,38 @@ sub acme_cmd ($action, $fqdn, $value) {
   my $fqdn_unsanitized = $fqdn;
   $fqdn =~ s/\.+$//; # Some acme.sh plugins add an additional . to the end of the hostname
 
+  my $provider_cfg;
+
+  eval {
+    $provider_cfg = get_provider_config_for_fqdn($fqdn);
+  };
+
+  if ($@) {
+    logg "provider selection failed for $fqdn: $@";
+
+    return {
+      status => 500,
+      text => "provider selection failed",
+      json => { error => "provider selection failed" },
+    };
+  }
+
+  my $dns_provider = $provider_cfg->{dns_provider};
+
   # Source acme.sh and the dnsapi provider, then call the provider's add/rm function.
   # fqdn and value are passed as positional args ($1, $2) rather than interpolated into
   # the shell string, so they can never be parsed as shell syntax.
-  my $func = $config->{dns_provider}.'_'.$action;
+  my $func = $dns_provider.'_'.$action;
   my $script = "source $acme_home/acme.sh >/dev/null 2>&1; " .
-               "source $acme_home/dnsapi/$config->{dns_provider}.sh; " .
+               "source $acme_home/dnsapi/$dns_provider.sh; " .
                '"$0" "$1" "$2"';
   logg "executing: $func \"$fqdn\" \"$value\"";
+
+  local %ENV = %ENV;
+
+  foreach (keys %{$provider_cfg->{env}}) {
+    $ENV{$_} = $provider_cfg->{env}->{$_};
+  }
 
   return {
     status => 200,
@@ -309,6 +387,50 @@ __DATA__
     env => {
         'CF_Token' => 'TWFkZXlhbG9vawo='
     },
+
+    # Multi-provider / multi-account mode
+    #
+    # If providers => [...] is specified,
+    # runtime ACME challenge requests will automatically
+    # select the correct provider based on fqdn suffix.
+    #
+    # The first matching domain suffix wins.
+    #
+    # IMPORTANT:
+    # Self-certificate generation for acmeproxy.pl itself
+    # still uses the global dns_provider/env config above.
+    #
+    #providers => [
+    #    {
+    #        name => 'cloudflare-main',
+    #
+    #        dns_provider => 'dns_cf',
+    #
+    #        domains => [
+    #            'example.org',
+    #            'example.net',
+    #        ],
+    #
+    #        env => {
+    #            'CF_Token' => 'token1',
+    #        },
+    #    },
+    #
+    #    {
+    #        name => 'route53-prod',
+    #
+    #        dns_provider => 'dns_aws',
+    #
+    #        domains => [
+    #            'corp.internal',
+    #        ],
+    #
+    #        env => {
+    #            'AWS_ACCESS_KEY_ID' => 'xxx',
+    #            'AWS_SECRET_ACCESS_KEY' => 'yyy',
+    #        },
+    #    },
+    #],
         
     # This is the 'common' hostname of the machine where acmeproxy.pl is running.
     # acmeproxy.pl will generate a TLS certificate for this hostname.
