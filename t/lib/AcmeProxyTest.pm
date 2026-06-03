@@ -9,6 +9,7 @@ our @EXPORT_OK = qw(
     silence_logg
     clear_log
     write_config_file
+    write_dnsapi_stub
     $TMPDIR
     @LOG_LINES
 );
@@ -53,6 +54,30 @@ dns_test_rm() {
   return 0
 }
 EOSH
+
+# Write a named dnsapi provider stub (e.g. dns_a) used by multi-provider tests.
+# Each add/rm invocation appends a line to calls.log of the form:
+#   <name> <action> <fqdn> <value> KEY1=<val> KEY2=<val> ...
+# logging the live values of @env_keys so tests can assert which provider was
+# selected AND which env vars were in scope for that call. Honours
+# $ACMEPROXY_TEST_FAIL like the default dns_test stub.
+sub write_dnsapi_stub {
+    my ($name, @env_keys) = @_;
+    my $envdump = join(' ', map { "$_=\$$_" } @env_keys);
+    my $body = <<"EOSH";
+${name}_add() {
+  echo "$name add \$1 \$2 $envdump" >> "\$HOME/.acme.sh/calls.log"
+  [ -n "\$ACMEPROXY_TEST_FAIL" ] && return 1
+  return 0
+}
+${name}_rm() {
+  echo "$name rm \$1 \$2 $envdump" >> "\$HOME/.acme.sh/calls.log"
+  [ -n "\$ACMEPROXY_TEST_FAIL" ] && return 1
+  return 0
+}
+EOSH
+    _write_file("$TMPDIR/.acme.sh/dnsapi/$name.sh", $body);
+}
 
 sub _write_file {
     my ($path, $content) = @_;

@@ -154,4 +154,67 @@ SKIP: {
          'die message names the missing module');
 }
 
+# ===========================================================================
+# Subprocess: multi-provider config sanity checks (commit 6c12bbf)
+# ===========================================================================
+# Each provider entry must declare dns_provider, domains and env, and its
+# dnsapi script must exist. A base config below is mutated per-case.
+sub mp_base {
+    return {
+        acmesh_extra_params_install      => [],
+        acmesh_extra_params_install_cert => [],
+        acmesh_extra_params_issue        => [],
+        email        => 'test@example.com',
+        dns_provider => 'dns_test',
+        env          => {},
+        hostname     => 'test.example.com',
+        bind         => '*:0',
+        auth         => [{ user => 'bob', pass => 'dobbs', host => 'example.com' }],
+        providers    => [{
+            name         => 'p1',
+            dns_provider => 'dns_test',
+            domains      => ['example.com'],
+            env          => { 'X' => 'y' },
+        }],
+    };
+}
+
+sub run_mp_case {
+    my ($mutate, $like, $desc) = @_;
+    my $home = tempdir(CLEANUP => 1);
+    stub_acme_home($home);
+    my $cwd = tempdir(CLEANUP => 1);
+    my $cfg = mp_base();
+    $mutate->($cfg);
+    write_config_file($cwd, $cfg);
+    my ($out, $exit) = run_script(cwd => $cwd, env => { HOME => $home });
+    isnt($exit, 0, "$desc: exits non-zero");
+    like($out, $like, "$desc: die message");
+}
+
+run_mp_case(
+    sub { delete $_[0]->{providers}[0]{dns_provider} },
+    qr/provider entry missing dns_provider/,
+    'provider missing dns_provider',
+);
+run_mp_case(
+    sub { delete $_[0]->{providers}[0]{domains} },
+    qr/provider entry missing domains/,
+    'provider missing domains',
+);
+run_mp_case(
+    sub { delete $_[0]->{providers}[0]{env} },
+    qr/provider entry missing env/,
+    'provider missing env',
+);
+run_mp_case(
+    sub { $_[0]->{providers}[0]{dns_provider} = 'dns_absent' },
+    qr/acme dnslib provider not found: dns_absent/,
+    'provider dnsapi script missing',
+);
+
+# (A fully-valid multi-provider config booting cleanly is the positive control
+# exercised by 25-multi-provider.t, which requires the script in-process with a
+# valid two-provider config -- that runs this same boot-time sanity loop.)
+
 done_testing();

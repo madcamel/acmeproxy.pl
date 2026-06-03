@@ -26,6 +26,15 @@ for my $c (@metachars) {
     like($res->{text}, qr/invalid characters in value/, "value $label error text");
 }
 
+# --- legacy single-provider config -----------------------------------------
+# With no `providers` key, get_provider_config_for_fqdn returns the global
+# dns_provider/env for any fqdn (and never dies).
+{
+    my $cfg = main::get_provider_config_for_fqdn('anything.example.com');
+    is($cfg->{dns_provider}, 'dns_test', 'legacy mode returns global dns_provider');
+    is_deeply($cfg->{env}, {}, 'legacy mode returns global env');
+}
+
 # --- happy path ------------------------------------------------------------
 my $res = main::acme_cmd('add', '_acme-challenge.bob.example.com', 'token123');
 is($res->{status}, 200, 'valid add returns 200');
