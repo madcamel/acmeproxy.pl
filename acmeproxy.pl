@@ -261,6 +261,8 @@ sub acme_cmd ($action, $fqdn, $value) {
   my $func = $dns_provider.'_'.$action;
   my $script = "source $acme_home/acme.sh >/dev/null 2>&1; " .
                "source $acme_home/dnsapi/$dns_provider.sh; " .
+               'HTTP_HEADER="$(_mktemp)" ; ' .
+               'trap \'rm -f -- "${HTTP_HEADER}"\' EXIT ;' .
                '"$0" "$1" "$2"';
   logg "executing: $func \"$fqdn\" \"$value\"";
 
